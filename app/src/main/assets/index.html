@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>KFCMapDroidTR</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin=""/>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body, #app { height: 100%; font-family: Arial, sans-serif; }
+    #app { display: flex; flex-direction: column; background: #f5f5f5; }
+    .search { padding: 10px; background: #fff; border-bottom: 1px solid #eee; }
+    input { width: 100%; padding: 12px 14px; border-radius: 12px; border: 1px solid #ddd; font-size: 14px; }
+    .status { padding: 8px 12px; font-size: 12px; color: #666; background: #fff; border-bottom: 1px solid #eee; }
+    .main { flex: 1; position: relative; }
+    #map { position: absolute; inset: 0; }
+    .list {
+      position: absolute; inset: 0 auto 0 0; width: 320px; max-width: 84vw; overflow-y: auto;
+      background: rgba(255,255,255,.97); border-right: 1px solid #eee; z-index: 500;
+    }
+    .card { padding: 12px; border-bottom: 1px solid #f0f0f0; cursor: pointer; }
+    .card:active, .card.active { background: #fff1f3; }
+    .name { font-weight: 700; font-size: 14px; color: #222; }
+    .addr { font-size: 12px; color: #666; margin-top: 4px; line-height: 1.35; }
+    .tags { margin-top: 6px; display: flex; gap: 4px; flex-wrap: wrap; }
+    .tag { font-size: 10px; padding: 3px 7px; border-radius: 999px; }
+    .city { background: #ececec; color: #555; }
+    .paket { background: #fff3e0; color: #e65100; }
+    .gelal { background: #e8f5e9; color: #2e7d32; }
+    .fab {
+      position: absolute; right: 16px; bottom: 16px; width: 52px; height: 52px; border-radius: 50%; border: 0;
+      background: #E4002B; color: white; font-size: 22px; z-index: 700; box-shadow: 0 4px 12px rgba(0,0,0,.25);
+    }
+    .hidden { display: none; }
+    @media (max-width: 768px) {
+      .list { width: 100%; max-width: none; }
+    }
+  </style>
+</head>
+<body>
+<div id="app">
+  <div class="search"><input id="search" placeholder="Şube, şehir veya ilçe ara..."></div>
+  <div class="status" id="status">Veri bekleniyor...</div>
+  <div class="main">
+    <div class="list" id="list"></div>
+    <div id="map"></div>
+    <button class="fab" id="fab">🗺️</button>
+  </div>
+</div>
+<script>
+  const map = L.map('map').setView([39.0, 35.0], 6);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '&copy; OpenStreetMap'
+  }).addTo(map);
+
+  const icon = L.divIcon({
+    html: '<div style="background:#E4002B;color:#fff;border-radius:50%;width:30px;height:30px;display:flex;align-items:center;justify-content:center;font-weight:bold;font-size:9px;border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.3)">KFC</div>',
+    iconSize: [30, 30], iconAnchor: [15, 15], popupAnchor: [0, -15], className: ''
+  });
+
+  let allStores = [];
+  let markers = [];
+  let listVisible = true;
+
+  function renderStoresFromAndroid(jsonText) {
+    try {
+      allStores = JSON.parse(jsonText || '[]');
+      document.getElementById('status').textContent = allStores.length + ' şube gösteriliyor';
+      renderMap(allStores);
+      renderList(allStores);
+      setTimeout(() => map.invalidateSize(), 200);
+    } catch (e) {
+      document.getElementById('status').textContent = 'Veri çözümlenemedi';
+      console.error(e);
+    }
+  }
+
+  function renderMap(stores) {
+    markers.forEach(x => map.removeLayer(x.marker));
+    markers = [];
+    stores.forEach(store => {
+      const marker = L.marker([store.lat, store.lng], { icon }).addTo(map);
+      marker.bindPopup(`<b>${escapeHtml(store.name)}</b><br><small>${escapeHtml(store.address)}</small><br>${store.paket ? '<small style="color:#e65100">📦 Paket</small> ' : ''}${store.gelAl ? '<small style="color:#2e7d32">🚶 Gel-Al</small>' : ''}`);
+      markers.push({ marker, store });
+    });
+  }
+
+  function renderList(stores) {
+    const list = document.getElementById('list');
+    if (!stores.length) {
+      list.innerHTML = '<div class="card">Sonuç yok.</div>';
+      return;
+    }
+    list.innerHTML = stores.map(store => `
+      <div class="card" onclick="focusStore(${store.id})">
+        <div class="name">${escapeHtml(store.name)}</div>
+        <div class="addr">${escapeHtml(store.address)}</div>
+        <div class="tags">
+          <span class="tag city">${escapeHtml(store.city)}</span>
+          ${store.paket ? '<span class="tag paket">📦 Paket</span>' : ''}
+          ${store.gelAl ? '<span class="tag gelal">🚶 Gel-Al</span>' : ''}
+        </div>
+      </div>
+    `).join('');
+  }
+
+  function focusStore(id) {
+    const found = markers.find(x => x.store.id === id);
+    if (!found) return;
+    map.setView([found.store.lat, found.store.lng], 15);
+    found.marker.openPopup();
+    hideListOnMobile();
+  }
+
+  function filterStores(q) {
+    const text = q.toLowerCase();
+    const filtered = allStores.filter(s => (`${s.name} ${s.address} ${s.city} ${s.district}`).toLowerCase().includes(text));
+    document.getElementById('status').textContent = filtered.length + ' sonuç';
+    renderMap(filtered);
+    renderList(filtered);
+  }
+
+  function hideListOnMobile() {
+    if (window.innerWidth <= 768) {
+      document.getElementById('list').classList.add('hidden');
+      document.getElementById('fab').textContent = '📋';
+      listVisible = false;
+      setTimeout(() => map.invalidateSize(), 200);
+    }
+  }
+
+  document.getElementById('search').addEventListener('input', e => filterStores(e.target.value));
+  document.getElementById('fab').addEventListener('click', () => {
+    const list = document.getElementById('list');
+    listVisible = !listVisible;
+    list.classList.toggle('hidden', !listVisible);
+    document.getElementById('fab').textContent = listVisible ? '🗺️' : '📋';
+    setTimeout(() => map.invalidateSize(), 200);
+  });
+
+  function escapeHtml(value) {
+    return String(value ?? '').replace(/[&<>'"]/g, s => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[s]));
+  }
+
+  window.renderStoresFromAndroid = renderStoresFromAndroid;
+</script>
+</body>
+</html>

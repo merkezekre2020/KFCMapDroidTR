@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources xmlns:tools="http://schemas.android.com/tools">
+    <style name="Theme.KFCMapDroidTR" parent="Theme.Material3.DayNight.NoActionBar">
+        <item name="colorPrimary">@color/kfc_red</item>
+        <item name="colorOnPrimary">@color/white</item>
+        <item name="android:statusBarColor">@color/kfc_red</item>
+        <item name="android:navigationBarColor">@android:color/black</item>
+    </style>
+</resources>
